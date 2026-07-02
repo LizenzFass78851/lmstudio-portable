@@ -1,0 +1,158 @@
+name: "Release"
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  COMPARE_FILE0: /tmp/.compare-content-0.txt
+  COMPARE_FILE1: /tmp/.compare-content-1.txt
+  SEVENZ_VERSION: 26.02
+
+jobs:
+  release:
+    runs-on: ubuntu-slim
+    steps:
+      - name: env
+        id: env
+        run: |
+          export KEY="${{ github.job }}"
+          echo "key=$KEY" >> $GITHUB_OUTPUT
+          echo "################################################################" && bash -c "echo KEY=$KEY"
+
+          export TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "################################################################" && bash -c "echo TIMESTAMP=$TIMESTAMP"
+
+      - name: locale
+        run: sudo $SHELL -c "locale-gen en_US.utf8 && update-locale"
+
+      - name: clone
+        uses: actions/checkout@v7
+        with:
+          clean: false
+
+      - name: cache_7zbin
+        uses: actions/cache@v6
+        with:
+          path: |
+            /tmp/7z-linux-x64.tar.xz
+          key: 7z-${{ env.SEVENZ_VERSION }}-${{ steps.env.outputs.timestamp }}
+          restore-keys: |
+            7z-${{ env.SEVENZ_VERSION }}-
+
+      - name: dependencies
+        run: |
+          SEVENZ_VERSION_NO_DOT=$(printf '%s' "$SEVENZ_VERSION" | tr -d '.')
+          [ ! -f /tmp/7z-linux-x64.tar.xz ] && wget -q -O /tmp/7z-linux-x64.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-x64.tar.xz"
+          sudo tar -xf /tmp/7z-linux-x64.tar.xz -C /usr/local/bin/ 7zzs
+          sudo ln -sf /usr/local/bin/7zzs /usr/local/bin/7z
+          sudo chmod +x /usr/local/bin/7zzs /usr/local/bin/7z
+        
+      - name: download
+        run: |
+          rm -rf App/LMStudio && mkdir -p App/LMStudio
+          wget -q -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/x64
+      
+      - name: check
+        id: check
+        run: |
+          7z t LMStudioInstaller.exe > /tmp/7z_check.log
+          grep "ProductVersion" /tmp/7z_check.log | head -n1 | awk -F' ' '{ print $2 }' > /tmp/7z_check_version.log
+          SEVENZ_CHECK_VERSION="$(cat /tmp/7z_check_version.log)"
+          echo "7z_check_version: $SEVENZ_CHECK_VERSION"
+          echo "SEVENZ_CHECK_VERSION=$SEVENZ_CHECK_VERSION" >> $GITHUB_OUTPUT
+
+      - name: cache_load
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ env.COMPARE_FILE0 }}
+          key: ${{ steps.env.outputs.key }}-${{ steps.env.outputs.timestamp }}
+          restore-keys: |
+            ${{ steps.env.outputs.key }}-
+
+      - name: compare
+        shell: bash
+        id: compare
+        run: |
+          echo "${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}" > ${{ env.COMPARE_FILE1 }}
+
+          if [ ! -e "${{ env.COMPARE_FILE0 }}" ]; then
+            echo "copy File for cache"
+            cp ${{ env.COMPARE_FILE1 }} ${{ env.COMPARE_FILE0 }}
+          else
+            CONTENT_FILE0=$(cat ${{ env.COMPARE_FILE0 }})
+            CONTENT_FILE1=$(cat ${{ env.COMPARE_FILE1 }})
+            if [ "$CONTENT_FILE0" = "$CONTENT_FILE1" ]; then
+              echo "Still at latest version"
+              echo "latest_version=true" >> $GITHUB_OUTPUT
+            else
+              echo "Not at latest version"
+              cp ${{ env.COMPARE_FILE1 }} ${{ env.COMPARE_FILE0 }}
+            fi
+          fi
+
+      - name: generate
+        if: steps.compare.outputs.latest_version != 'true'
+        env:
+          LANG: en_US.utf8
+        run: |
+          #extract
+          7z x LMStudioInstaller.exe "\$PLUGINSDIR/app-64.7z" -o./ && rm -f LMStudioInstaller.exe
+          7z x "\$PLUGINSDIR/app-64.7z" -o./App/LMStudio && rm -rf "\$PLUGINSDIR/app-64.7z"
+
+          #repack
+          7z a -t7z -mx=1 -mmt=on -m0=lzma2 /tmp/LMStudioPortable.7z \
+            ./App \
+            ./Other \
+            ./help.html \
+            ./LICENSE.txt \
+            LMStudioPortable.exe
+
+      - name: Delete existing tag
+        shell: sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_OWNER_REPO: ${{ github.repository }}
+        if: steps.compare.outputs.latest_version != 'true'
+        continue-on-error: true
+        run: gh release delete "${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
+
+      - name: Publish release files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_OWNER_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
+        if: steps.compare.outputs.latest_version != 'true'
+        run: |
+          # create release-notes
+          cat > /tmp/release-notes.txt <<EOF
+          ### LMStudio Portable
+          - Version: ${TAG_NAME}
+          EOF
+          # create release
+          gh release create "${TAG_NAME}" \
+            --title "LMStudio Portable" \
+            --notes-file /tmp/release-notes.txt \
+            --prerelease=false \
+            --draft=false \
+            --latest=true \
+            --repo "$GH_OWNER_REPO" \
+            $(find /tmp/LMStudioPortable.7z -type f)
+
+      - name: cache_save
+        if: steps.compare.outputs.latest_version != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ env.COMPARE_FILE0 }}
+          key: ${{ steps.env.outputs.key }}-${{ steps.env.outputs.timestamp }}

@@ -1,0 +1,6 @@
+# Set CRLF for Windows specific script files
+*.exe binary eol=crlf
+*.dll binary eol=crlf
+
+# All other files on Auto
+* text=auto
