@@ -6,6 +6,13 @@ on:
   schedule:
     - cron: '30 14 * * *'
   workflow_dispatch:
+    inputs:
+      recache:
+        description: 'Delete Cache before Build?'
+        required: false
+        options: [ 'yes', 'no' ]
+        type: choice
+        default: 'no'
 
 concurrency:
   group: ${{ github.workflow }}
@@ -17,8 +24,32 @@ env:
   SEVENZ_VERSION: 26.02
 
 jobs:
+  clear_cache:
+    runs-on: ubuntu-slim
+    if: ${{ github.event.inputs.recache == 'yes' }}
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: clear_cache
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ONWER: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -e +o pipefail
+          echo "::notice::Recache selected - Deleting all caches for this workflow ..."
+          gh cache delete --all --succeed-on-no-caches \
+            --repo $GH_ONWER/$GH_REPO
+
   release:
     runs-on: ubuntu-slim
+    if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
+    permissions:
+      contents: write
+    needs: [ clear_cache ]
     steps:
       - name: env
         id: env
