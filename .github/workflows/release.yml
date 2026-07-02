@@ -141,7 +141,7 @@ jobs:
           EOF
           # create release
           gh release create "${TAG_NAME}" \
-            --title "LMStudio Portable" \
+            --title "LMStudio Portable ${TAG_NAME}" \
             --notes-file /tmp/release-notes.txt \
             --prerelease=false \
             --draft=false \
