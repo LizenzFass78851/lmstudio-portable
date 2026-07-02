@@ -44,9 +44,9 @@ jobs:
         with:
           path: |
             /tmp/7z-linux-x64.tar.xz
-          key: 7z-${{ env.SEVENZ_VERSION }}-${{ steps.env.outputs.timestamp }}
+          key: 7z-${{ env.SEVENZ_VERSION }}
           restore-keys: |
-            7z-${{ env.SEVENZ_VERSION }}-
+            7z-
 
       - name: dependencies
         run: |
