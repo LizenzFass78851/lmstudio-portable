@@ -44,12 +44,23 @@ jobs:
           gh cache delete --all --succeed-on-no-caches \
             --repo $GH_ONWER/$GH_REPO
 
-  release:
-    runs-on: ubuntu-slim
+  generate:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
-    permissions:
-      contents: write
     needs: [ clear_cache ]
+    outputs:
+      SEVENZ_CHECK_VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
+      latest_version: ${{ steps.compare.outputs.latest_version }}
+      key: ${{ steps.env.outputs.key }}
+      compare-env: ${{ steps.upload-compare.outputs.compare-env }}
     steps:
       - name: env
         id: env
@@ -58,9 +69,11 @@ jobs:
           echo "key=$KEY" >> $GITHUB_OUTPUT
           echo "################################################################" && bash -c "echo KEY=$KEY"
 
-          export TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-          echo "################################################################" && bash -c "echo TIMESTAMP=$TIMESTAMP"
+          export ARCH="${{ matrix.arch }}"
+          echo "arch=$ARCH" >> $GITHUB_OUTPUT
+          echo "################################################################" && bash -c "echo ARCH=$ARCH"
+
+          echo "keymatrix=$KEY-$ARCH" >> $GITHUB_OUTPUT
 
       - name: locale
         run: sudo $SHELL -c "locale-gen en_US.utf8 && update-locale"
@@ -74,29 +87,29 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            /tmp/7z-linux-x64.tar.xz
-          key: 7z-${{ env.SEVENZ_VERSION }}
+            /tmp/7z-linux-${{ matrix.arch }}.tar.xz
+          key: ${{ steps.env.outputs.keymatrix }}-7z-${{ env.SEVENZ_VERSION }}
 
       - name: dependencies
         run: |
           SEVENZ_VERSION_NO_DOT=$(printf '%s' "$SEVENZ_VERSION" | tr -d '.')
-          [ ! -f /tmp/7z-linux-x64.tar.xz ] && wget -q -O /tmp/7z-linux-x64.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-x64.tar.xz"
-          sudo tar -xf /tmp/7z-linux-x64.tar.xz -C /usr/local/bin/ 7zzs
+          [ ! -f /tmp/7z-linux-${{ matrix.arch }}.tar.xz ] && wget -q -O /tmp/7z-linux-${{ matrix.arch }}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${{ matrix.arch }}.tar.xz"
+          sudo tar -xf /tmp/7z-linux-${{ matrix.arch }}.tar.xz -C /usr/local/bin/ 7zzs
           sudo ln -sf /usr/local/bin/7zzs /usr/local/bin/7z
           sudo chmod +x /usr/local/bin/7zzs /usr/local/bin/7z
         
       - name: download
         run: |
           rm -rf App/LMStudio && mkdir -p App/LMStudio
-          wget -q -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/x64
+          wget -q -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/${{ matrix.arch }}
       
       - name: check
         id: check
         run: |
-          7z t LMStudioInstaller.exe > /tmp/7z_check.log
-          grep "ProductVersion" /tmp/7z_check.log | head -n1 | awk -F' ' '{ print $2 }' > /tmp/7z_check_version.log
-          SEVENZ_CHECK_VERSION="$(cat /tmp/7z_check_version.log)"
-          echo "7z_check_version: $SEVENZ_CHECK_VERSION"
+          7z t LMStudioInstaller.exe >/tmp/7z_check.log
+          SEVENZ_CHECK_VERSION="$(grep "ProductVersion" /tmp/7z_check.log | head -n1 | awk -F' ' '{ print $2 }' 2>/dev/null)"
+          [ -z "$SEVENZ_CHECK_VERSION" ] && echo "7z_check_version: not found" && exit 1
+          [ -n "$SEVENZ_CHECK_VERSION" ] && echo "7z_check_version: $SEVENZ_CHECK_VERSION"
           echo "SEVENZ_CHECK_VERSION=$SEVENZ_CHECK_VERSION" >> $GITHUB_OUTPUT
 
       - name: cache_load
@@ -104,7 +117,7 @@ jobs:
         with:
           path: |
             ${{ env.COMPARE_FILE0 }}
-          key: ${{ steps.env.outputs.key }}-${{ steps.env.outputs.timestamp }}
+          key: ${{ steps.env.outputs.key }}-${{ github.run_id }}
           restore-keys: |
             ${{ steps.env.outputs.key }}-
 
@@ -134,34 +147,69 @@ jobs:
         env:
           LANG: en_US.utf8
         run: |
+          #prepare
+          ARCH_WITHOUT_X=$(printf '%s' "${{ matrix.arch }}" | tr -d 'x')
+          
           #extract
-          7z x LMStudioInstaller.exe "\$PLUGINSDIR/app-64.7z" -o./ && rm -f LMStudioInstaller.exe
-          7z x "\$PLUGINSDIR/app-64.7z" -o./App/LMStudio && rm -rf "\$PLUGINSDIR/app-64.7z"
+          7z x LMStudioInstaller.exe "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z" -o./ && rm -f LMStudioInstaller.exe
+          7z x "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z" -o./App/LMStudio && rm -rf "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z"
 
           #repack
-          7z a -t7z -mx=1 -mmt=on -m0=lzma2 /tmp/LMStudioPortable.7z \
+          7z a -t7z -mx=3 -mmt=on -m0=lzma2 /tmp/LMStudioPortable-${{ matrix.arch }}.7z \
             ./App \
             ./Other \
             ./help.html \
             ./LICENSE.txt \
             LMStudioPortable.exe
 
+      - name: upload
+        if: steps.compare.outputs.latest_version != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: LMStudioPortable-${{ matrix.arch }}.7z
+          path: /tmp/LMStudioPortable-${{ matrix.arch }}.7z
+          archive: false
+      - name: upload-compare
+        id: upload-compare
+        if: steps.compare.outputs.latest_version != 'true'
+        run: echo "compare-env=$(cat ${{ env.COMPARE_FILE0 }})" >> $GITHUB_OUTPUT
+
+
+  release:
+    needs: [ generate ]
+    runs-on: ubuntu-slim
+    if: ${{ !cancelled() && needs.generate.result == 'success' && needs.generate.outputs.latest_version != 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - name: download
+        if: needs.generate.outputs.latest_version != 'true'
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp
+          pattern: LMStudioPortable-*.7z
+          merge-multiple: true
+      - name: download-compare
+        id: download-compare
+        if: needs.generate.outputs.latest_version != 'true'
+        run: echo "${{ needs.generate.outputs.compare-env }}" > ${{ env.COMPARE_FILE0 }}
+
       - name: Delete existing tag
         shell: sh
         env:
           GH_TOKEN: ${{ github.token }}
           GH_OWNER_REPO: ${{ github.repository }}
-        if: steps.compare.outputs.latest_version != 'true'
         continue-on-error: true
-        run: gh release delete "${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
+        if: needs.generate.outputs.latest_version != 'true'
+        run: gh release delete "${{ needs.generate.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
 
       - name: Publish release files
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_OWNER_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
-        if: steps.compare.outputs.latest_version != 'true'
+          TAG_NAME: ${{ needs.generate.outputs.SEVENZ_CHECK_VERSION }}
+        if: needs.generate.outputs.latest_version != 'true'
         run: |
           # create release-notes
           cat > /tmp/release-notes.txt <<EOF
@@ -176,12 +224,12 @@ jobs:
             --draft=false \
             --latest=true \
             --repo "$GH_OWNER_REPO" \
-            $(find /tmp/LMStudioPortable.7z -type f)
+            $(find /tmp/LMStudioPortable-*.7z -type f)
 
       - name: cache_save
-        if: steps.compare.outputs.latest_version != 'true'
+        if: needs.generate.outputs.latest_version != 'true'
         uses: actions/cache/save@v6
         with:
           path: |
             ${{ env.COMPARE_FILE0 }}
-          key: ${{ steps.env.outputs.key }}-${{ steps.env.outputs.timestamp }}
+          key: ${{ needs.generate.outputs.key }}-${{ github.run_id }}
