@@ -50,9 +50,9 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
     needs: [ clear_cache ]
@@ -173,7 +173,6 @@ jobs:
         id: upload-compare
         if: steps.compare.outputs.latest_version != 'true'
         run: echo "compare-env=$(cat ${{ env.COMPARE_FILE0 }})" >> $GITHUB_OUTPUT
-
 
   release:
     needs: [ generate ]
