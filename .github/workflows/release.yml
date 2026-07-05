@@ -60,7 +60,8 @@ jobs:
       SEVENZ_CHECK_VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
       latest_version: ${{ steps.compare.outputs.latest_version }}
       key: ${{ steps.env.outputs.key }}
-      compare-env: ${{ steps.upload-compare.outputs.compare-env }}
+      compare-env-x64: ${{ steps.upload-compare.outputs.compare-env-x64 }}
+      compare-env-arm64: ${{ steps.upload-compare.outputs.compare-env-arm64 }}
     steps:
       - name: env
         id: env
@@ -172,7 +173,7 @@ jobs:
       - name: upload-compare
         id: upload-compare
         if: steps.compare.outputs.latest_version != 'true'
-        run: echo "compare-env=$(cat ${{ env.COMPARE_FILE0 }})" >> $GITHUB_OUTPUT
+        run: echo "compare-env-${{ matrix.arch }}=$(cat ${{ env.COMPARE_FILE0 }})" >> $GITHUB_OUTPUT
 
   release:
     needs: [ generate ]
@@ -191,7 +192,7 @@ jobs:
       - name: download-compare
         id: download-compare
         if: needs.generate.outputs.latest_version != 'true'
-        run: echo "${{ needs.generate.outputs.compare-env }}" > ${{ env.COMPARE_FILE0 }}
+        run: echo "${{ needs.generate.outputs.compare-env-x64 }}" > ${{ env.COMPARE_FILE0 }}
 
       - name: Delete existing tag
         shell: sh
