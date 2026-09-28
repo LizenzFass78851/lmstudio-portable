@@ -21,7 +21,7 @@ concurrency:
 env:
   COMPARE_FILE0: /tmp/.compare-content-0.txt
   COMPARE_FILE1: /tmp/.compare-content-1.txt
-  SEVENZ_VERSION: 26.02
+  SEVENZ_VERSION: 26.03
 
 jobs:
   clear_cache:
