@@ -72,8 +72,6 @@ jobs:
 
       - name: clone
         uses: actions/checkout@v7
-        with:
-          clean: false
 
       - name: cache_7zbin
         uses: actions/cache@v6
