@@ -59,22 +59,13 @@ jobs:
     outputs:
       SEVENZ_CHECK_VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
       latest_version: ${{ steps.compare.outputs.latest_version }}
-      key: ${{ steps.env.outputs.key }}
+      key: ${{ steps.prepare_workflow.outputs.key }}
       compare-env-x64: ${{ steps.upload-compare.outputs.compare-env-x64 }}
       compare-env-arm64: ${{ steps.upload-compare.outputs.compare-env-arm64 }}
     steps:
-      - name: env
-        id: env
-        run: |
-          export KEY="${{ github.job }}"
-          echo "key=$KEY" >> $GITHUB_OUTPUT
-          echo "################################################################" && bash -c "echo KEY=$KEY"
-
-          export ARCH="${{ matrix.arch }}"
-          echo "arch=$ARCH" >> $GITHUB_OUTPUT
-          echo "################################################################" && bash -c "echo ARCH=$ARCH"
-
-          echo "keymatrix=$KEY-$ARCH" >> $GITHUB_OUTPUT
+      - name: prepare workflow
+        id: prepare_workflow
+        run: echo "key=${GITHUB_JOB}" >> "$GITHUB_OUTPUT"
 
       - name: locale
         run: sudo $SHELL -c "locale-gen en_US.utf8 && update-locale"
@@ -89,7 +80,7 @@ jobs:
         with:
           path: |
             /tmp/7z-linux-${{ matrix.arch }}.tar.xz
-          key: ${{ steps.env.outputs.keymatrix }}-7z-${{ env.SEVENZ_VERSION }}
+          key: ${{ github.job }}-${{ matrix.arch }}-7z-${{ env.SEVENZ_VERSION }}
 
       - name: dependencies
         run: |
@@ -118,9 +109,9 @@ jobs:
         with:
           path: |
             ${{ env.COMPARE_FILE0 }}
-          key: ${{ steps.env.outputs.key }}-${{ github.run_id }}
+          key: ${{ github.job }}-${{ github.run_id }}
           restore-keys: |
-            ${{ steps.env.outputs.key }}-
+            ${{ github.job }}-
 
       - name: compare
         shell: bash
