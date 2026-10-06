@@ -21,7 +21,6 @@ concurrency:
 env:
   COMPARE_FILE0: /tmp/.compare-content-0.txt
   COMPARE_FILE1: /tmp/.compare-content-1.txt
-  SEVENZ_VERSION: 26.03
 
 jobs:
   clear_cache:
@@ -67,6 +66,24 @@ jobs:
         id: prepare_workflow
         run: echo "key=${GITHUB_JOB}" >> "$GITHUB_OUTPUT"
 
+      - name: Find latest tag (7z version)
+        id: update_build_find_latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ip7z/7zip
+          #FIXED_TAG: 26.04
+        run: |
+          [ -n "$FIXED_TAG" ] && echo "tag=$FIXED_TAG" >> $GITHUB_OUTPUT && exit 0
+
+          if ! LATEST_TAG=$(gh api repos/$REPOSITORY/releases --jq '[.[] | select(.prerelease == false)][0].tag_name' 2>/dev/null); then
+            echo "::error::Failed to fetch latest tag for repository $REPOSITORY"
+          elif [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "::warning::No tags found for repository $REPOSITORY"
+          else
+            echo "::notice::Latest tag for repository $REPOSITORY: $LATEST_TAG"
+          fi
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
       - name: locale
         run: sudo $SHELL -c "locale-gen en_US.utf8 && update-locale"
 
@@ -78,9 +95,11 @@ jobs:
         with:
           path: |
             /tmp/7z-linux-${{ matrix.arch }}.tar.xz
-          key: ${{ github.job }}-${{ matrix.arch }}-7z-${{ env.SEVENZ_VERSION }}
+          key: ${{ github.job }}-${{ matrix.arch }}-7z-${{ steps.update_build_find_latest.outputs.tag }}
 
       - name: dependencies
+        env:
+          SEVENZ_VERSION: ${{ steps.update_build_find_latest.outputs.tag }}
         run: |
           SEVENZ_VERSION_NO_DOT=$(printf '%s' "$SEVENZ_VERSION" | tr -d '.')
           [ ! -f /tmp/7z-linux-${{ matrix.arch }}.tar.xz ] && wget -q -O /tmp/7z-linux-${{ matrix.arch }}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${{ matrix.arch }}.tar.xz"
