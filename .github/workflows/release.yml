@@ -125,6 +125,7 @@ jobs:
         run: |
           7z l LMStudioInstaller.exe >/tmp/7z_check.log
           SEVENZ_CHECK_VERSION="$(grep "ProductVersion" /tmp/7z_check.log | grep "+" | head -n1 | awk -F' ' '{ print $2 }' 2>/dev/null || true)"
+          [ -n "$SEVENZ_CHECK_VERSION" ] && SEVENZ_CHECK_VERSION="$(echo "$SEVENZ_CHECK_VERSION" | tr '+' '-' 2>/dev/null || true)"
           [ -z "$SEVENZ_CHECK_VERSION" ] && SEVENZ_CHECK_VERSION="$(grep "ProductVersion" /tmp/7z_check.log | head -n1 | awk -F' ' '{ print $2 }' 2>/dev/null || true)"
           [ -z "$SEVENZ_CHECK_VERSION" ] && echo "7z_check_version: not found" && exit 1
           [ -n "$SEVENZ_CHECK_VERSION" ] && echo "7z_check_version: $SEVENZ_CHECK_VERSION"
