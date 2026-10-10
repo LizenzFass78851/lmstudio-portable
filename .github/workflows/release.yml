@@ -62,7 +62,16 @@ jobs:
     steps:
       - name: prepare workflow
         id: prepare_workflow
-        run: echo "key=${GITHUB_JOB}" >> "$GITHUB_OUTPUT"
+        run: | 
+          echo "key=${GITHUB_JOB}" >> "$GITHUB_OUTPUT"
+
+          case "${{ runner.arch }}" in
+            X64)   echo "RUNNER_ARCH=x64" >> "$GITHUB_OUTPUT"               ;;
+            ARM64) echo "RUNNER_ARCH=arm64" >> "$GITHUB_OUTPUT"             ;;
+            X86)   echo "RUNNER_ARCH=x86" >> "$GITHUB_OUTPUT"               ;;
+            ARM)   echo "RUNNER_ARCH=arm" >> "$GITHUB_OUTPUT"               ;;
+            *)     echo "Failed to determine runner architecture" && exit 1 ;;
+          esac
 
       - name: Find latest tag (7z version)
         id: update_build_find_latest
@@ -92,16 +101,17 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
-            /tmp/7z-linux-${{ matrix.arch }}.tar.xz
+            /tmp/7z-linux-${{ steps.prepare_workflow.outputs.RUNNER_ARCH }}.tar.xz
           key: ${{ github.job }}-${{ matrix.arch }}-7z-${{ steps.update_build_find_latest.outputs.tag }}
 
       - name: dependencies
         env:
           SEVENZ_VERSION: ${{ steps.update_build_find_latest.outputs.tag }}
+          SEVENZ_ARCH: ${{ steps.prepare_workflow.outputs.RUNNER_ARCH }}
         run: |
           SEVENZ_VERSION_NO_DOT=$(printf '%s' "$SEVENZ_VERSION" | tr -d '.')
-          [ ! -f /tmp/7z-linux-${{ matrix.arch }}.tar.xz ] && wget -q -O /tmp/7z-linux-${{ matrix.arch }}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${{ matrix.arch }}.tar.xz"
-          sudo tar -xf /tmp/7z-linux-${{ matrix.arch }}.tar.xz -C /usr/local/bin/ 7zzs
+          [ ! -f /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz ] && wget -q -O /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${SEVENZ_ARCH}.tar.xz"
+          sudo tar -xf /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz -C /usr/local/bin/ 7zzs
           sudo ln -sf /usr/local/bin/7zzs /usr/local/bin/7z
           sudo chmod +x /usr/local/bin/7zzs /usr/local/bin/7z
         
