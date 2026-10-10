@@ -49,10 +49,8 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubuntu-26.04
           - arch: arm64
-            runner: ubuntu-26.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-26.04-arm
     if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
     needs: [ clear_cache ]
     outputs:
