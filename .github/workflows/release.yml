@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   schedule:
     - cron: '30 14 * * *'
+      timezone: "UTC"
   workflow_dispatch:
     inputs:
       recache:
