@@ -46,7 +46,7 @@ jobs:
         include:
           - arch: x64
           - arch: arm64
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-latest
     if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
     needs: [ clear_cache ]
     permissions:
@@ -104,7 +104,7 @@ jobs:
           SEVENZ_ARCH: ${{ steps.prepare_workflow.outputs.RUNNER_ARCH }}
         run: |
           SEVENZ_VERSION_NO_DOT=$(printf '%s' "$SEVENZ_VERSION" | tr -d '.')
-          [ ! -f /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz ] && wget -q -O /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${SEVENZ_ARCH}.tar.xz"
+          [ ! -f /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz ] && wget -q --show-progress --progress=dot:mega --timeout=20 --tries=5 --waitretry=5 -O /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VERSION}/7z${SEVENZ_VERSION_NO_DOT}-linux-${SEVENZ_ARCH}.tar.xz"
           sudo tar -xf /tmp/7z-linux-${SEVENZ_ARCH}.tar.xz -C /usr/local/bin/ 7zzs
           sudo ln -sf /usr/local/bin/7zzs /usr/local/bin/7z
           sudo chmod +x /usr/local/bin/7zzs /usr/local/bin/7z
@@ -112,7 +112,7 @@ jobs:
       - name: download
         run: |
           rm -rf App/LMStudio && mkdir -p App/LMStudio
-          wget -q -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/${{ matrix.arch }}
+          wget -q --show-progress --progress=dot:mega --timeout=20 --tries=5 --waitretry=5 -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/${{ matrix.arch }}
       
       - name: check
         id: check
