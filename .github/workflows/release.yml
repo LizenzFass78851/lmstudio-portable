@@ -18,10 +18,6 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
-env:
-  COMPARE_FILE0: /tmp/.compare-content-0.txt
-  COMPARE_FILE1: /tmp/.compare-content-1.txt
-
 jobs:
   clear_cache:
     runs-on: ubuntu-slim
@@ -53,18 +49,16 @@ jobs:
     runs-on: ubuntu-26.04-arm
     if: ${{ !cancelled() && needs.clear_cache.result != 'failure' }}
     needs: [ clear_cache ]
-    outputs:
-      SEVENZ_CHECK_VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
-      latest_version: ${{ steps.compare.outputs.latest_version }}
-      key: ${{ steps.prepare_workflow.outputs.key }}
-      compare-env-x64: ${{ steps.upload-compare.outputs.compare-env-x64 }}
-      compare-env-arm64: ${{ steps.upload-compare.outputs.compare-env-arm64 }}
+    permissions:
+      contents: write
+    env:
+      # Each LM Studio architecture has its own version stream.
+      COMPARE_FILE0: /tmp/.compare-content-${{ matrix.arch }}.txt
+      COMPARE_FILE1: /tmp/.compare-content-${{ matrix.arch }}-new.txt
     steps:
       - name: prepare workflow
         id: prepare_workflow
         run: | 
-          echo "key=${GITHUB_JOB}" >> "$GITHUB_OUTPUT"
-
           case "${{ runner.arch }}" in
             X64)   echo "RUNNER_ARCH=x64" >> "$GITHUB_OUTPUT"               ;;
             ARM64) echo "RUNNER_ARCH=arm64" >> "$GITHUB_OUTPUT"             ;;
@@ -136,9 +130,9 @@ jobs:
         with:
           path: |
             ${{ env.COMPARE_FILE0 }}
-          key: ${{ github.job }}-${{ github.run_id }}
+          key: ${{ github.job }}-${{ matrix.arch }}-${{ github.run_id }}
           restore-keys: |
-            ${{ github.job }}-
+            ${{ github.job }}-${{ matrix.arch }}-
 
       - name: compare
         shell: bash
@@ -174,50 +168,20 @@ jobs:
           7z x "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z" -o./App/LMStudio && rm -rf "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z"
 
           #repack
-          7z a -t7z -mx=3 -mmt=on -m0=lzma2 /tmp/LMStudioPortable-${{ matrix.arch }}.7z \
+          7z a -t7z -mx=3 -mmt=on -m0=lzma2 /tmp/LMStudioPortable-${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}.7z \
             ./App \
             ./Other \
             ./help.html \
             ./LICENSE.txt \
             LMStudioPortable.exe
 
-      - name: upload
-        if: steps.compare.outputs.latest_version != 'true'
-        uses: actions/upload-artifact@v7
+      - name: cache_save
+        if: always() && steps.compare.outcome == 'success'
+        uses: actions/cache/save@v6
         with:
-          name: LMStudioPortable-${{ matrix.arch }}.7z
-          path: /tmp/LMStudioPortable-${{ matrix.arch }}.7z
-          archive: false
-          retention-days: 1
-      - name: upload-compare
-        id: upload-compare
-        if: steps.compare.outputs.latest_version != 'true'
-        run: echo "compare-env-${{ matrix.arch }}=$(cat ${{ env.COMPARE_FILE0 }})" >> $GITHUB_OUTPUT
-
-  release:
-    needs: [ generate ]
-    runs-on: ubuntu-slim
-    if: ${{ !cancelled() && needs.generate.result == 'success' && needs.generate.outputs.latest_version != 'true' }}
-    permissions:
-      contents: write
-    steps:
-      - name: download
-        if: needs.generate.outputs.latest_version != 'true'
-        uses: actions/download-artifact@v8
-        with:
-          path: /tmp
-          pattern: LMStudioPortable-*.7z
-          merge-multiple: true
-      - name: download-compare
-        id: download-compare
-        if: needs.generate.outputs.latest_version != 'true'
-        run: |
-          if [ "${{ needs.generate.outputs.compare-env-x64 }}" = "${{ needs.generate.outputs.compare-env-arm64 }}" ]; then
-            echo "${{ needs.generate.outputs.compare-env-x64 }}" > ${{ env.COMPARE_FILE0 }}
-          else
-            echo "Error: compare-env of x64 and arm64 do not match"
-            exit 1
-          fi
+          path: |
+            ${{ env.COMPARE_FILE0 }}
+          key: ${{ github.job }}-${{ matrix.arch }}-${{ github.run_id }}
 
       - name: Delete existing tag
         shell: sh
@@ -225,36 +189,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_OWNER_REPO: ${{ github.repository }}
         continue-on-error: true
-        if: needs.generate.outputs.latest_version != 'true'
-        run: gh release delete "${{ needs.generate.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
+        if: steps.compare.outputs.latest_version != 'true'
+        run: gh release delete "${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
 
-      - name: Publish release files
+      - name: Publish release
+        if: steps.compare.outputs.latest_version != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_OWNER_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ needs.generate.outputs.SEVENZ_CHECK_VERSION }}
-        if: needs.generate.outputs.latest_version != 'true'
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
+          TAG_NAME: ${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
+          ARCHIVE: /tmp/LMStudioPortable-${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}.7z
         run: |
-          # create release-notes
           cat > /tmp/release-notes.txt <<EOF
           ### LMStudio Portable
-          - Version: ${TAG_NAME}
+          - Architecture: ${ARCH}
+          - Version: ${VERSION}
           EOF
-          # create release
-          gh release create "${TAG_NAME}" \
-            --title "LMStudio Portable ${TAG_NAME}" \
-            --notes-file /tmp/release-notes.txt \
-            --prerelease=false \
-            --draft=false \
-            --latest=true \
-            --repo "$GH_OWNER_REPO" \
-            $(find /tmp/LMStudioPortable-*.7z -type f)
 
-      - name: cache_save
-        if: needs.generate.outputs.latest_version != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ${{ env.COMPARE_FILE0 }}
-          key: ${{ needs.generate.outputs.key }}-${{ github.run_id }}
+          if [ "$ARCH" = arm64 ]; then
+            gh release create "$TAG_NAME" \
+              --title "LMStudio Portable ${ARCH} ${VERSION}" \
+              --notes-file /tmp/release-notes.txt \
+              --prerelease=true \
+              --draft=false \
+              --latest=false \
+              --repo "$GH_OWNER_REPO" "$ARCHIVE"
+          else
+            gh release create "$TAG_NAME" \
+              --title "LMStudio Portable ${ARCH} ${VERSION}" \
+              --notes-file /tmp/release-notes.txt \
+              --prerelease=false \
+              --draft=false \
+              --latest=true \
+              --repo "$GH_OWNER_REPO" "$ARCHIVE"
+          fi
