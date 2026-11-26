@@ -112,7 +112,7 @@ jobs:
       - name: download
         run: |
           rm -rf App/LMStudio && mkdir -p App/LMStudio
-          wget -q --show-progress --progress=dot:mega --timeout=20 --tries=5 --waitretry=5 -O LMStudioInstaller.exe https://lmstudio.ai/download/latest/win32/${{ matrix.arch }}
+          wget -q --show-progress --progress=dot:mega --timeout=20 --tries=5 --waitretry=5 -O LMStudioInstaller.exe "https://lmstudio.ai/download/latest/win32/${{ matrix.arch }}"
       
       - name: check
         id: check
@@ -160,10 +160,10 @@ jobs:
         env:
           LANG: en_US.utf8
         run: |
-          #prepare
+          # prepare
           ARCH_WITHOUT_X=$(printf '%s' "${{ matrix.arch }}" | tr -d 'x')
           
-          #extract
+          # extract
           7z x LMStudioInstaller.exe "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z" -o./ && rm -f LMStudioInstaller.exe
           7z x "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z" -o./App/LMStudio && rm -rf "\$PLUGINSDIR/app-${ARCH_WITHOUT_X}.7z"
 
