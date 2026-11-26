@@ -183,46 +183,38 @@ jobs:
             ${{ env.COMPARE_FILE0 }}
           key: ${{ github.job }}-${{ matrix.arch }}-${{ github.run_id }}
 
-      - name: Delete existing tag
-        shell: sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_OWNER_REPO: ${{ github.repository }}
-        continue-on-error: true
-        if: steps.compare.outputs.latest_version != 'true'
-        run: gh release delete "${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}" --cleanup-tag --yes --repo $GH_OWNER_REPO
-
       - name: Publish release
         if: steps.compare.outputs.latest_version != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_OWNER_REPO: ${{ github.repository }}
-          ARCH: ${{ matrix.arch }}
           VERSION: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
-          TAG_NAME: ${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
+          TAG_NAME: ${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}
           ARCHIVE: /tmp/LMStudioPortable-${{ matrix.arch }}-${{ steps.check.outputs.SEVENZ_CHECK_VERSION }}.7z
         run: |
           cat > /tmp/release-notes.txt <<EOF
-          ### LMStudio Portable
-          - Architecture: ${ARCH}
+          ### LM Studio Portable
           - Version: ${VERSION}
           EOF
 
-          if [ "$ARCH" = arm64 ]; then
+          if ! gh release view "$TAG_NAME" --repo "$GH_OWNER_REPO" >/dev/null 2>&1; then
             gh release create "$TAG_NAME" \
-              --title "LMStudio Portable ${ARCH} ${VERSION}" \
-              --notes-file /tmp/release-notes.txt \
-              --prerelease=true \
-              --draft=false \
-              --latest=false \
-              --repo "$GH_OWNER_REPO" "$ARCHIVE"
-          else
-            gh release create "$TAG_NAME" \
-              --title "LMStudio Portable ${ARCH} ${VERSION}" \
+              --title "LM Studio Portable ${VERSION}" \
               --notes-file /tmp/release-notes.txt \
               --prerelease=false \
               --draft=false \
               --latest=true \
-              --repo "$GH_OWNER_REPO" "$ARCHIVE"
+              --repo "$GH_OWNER_REPO" || true
           fi
+
+          for attempt in $(seq 1 12); do
+            if gh release view "$TAG_NAME" --repo "$GH_OWNER_REPO" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+
+          gh release upload "$TAG_NAME" "$ARCHIVE" \
+            --clobber \
+            --repo "$GH_OWNER_REPO"
